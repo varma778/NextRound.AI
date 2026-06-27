@@ -2,7 +2,6 @@
 
 import { z } from "zod";
 import Link from "next/link";
-import Image from "next/image";
 import { toast } from "sonner";
 import { auth } from "@/firebase/client";
 import { useForm } from "react-hook-form";
@@ -18,6 +17,7 @@ import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 
 import { signIn, signUp } from "@/lib/actions/auth.action";
+import { BRAND } from "@/constants/branding";
 import FormField from "./FormField";
 
 const authFormSchema = (type: FormType) => {
@@ -81,10 +81,15 @@ const AuthForm = ({ type }: { type: FormType }) => {
           return;
         }
 
-        await signIn({
+        const result = await signIn({
           email,
           idToken,
         });
+
+        if (!result.success) {
+          toast.error(result.message);
+          return;
+        }
 
         toast.success("Signed in successfully.");
         router.push("/");
@@ -100,12 +105,14 @@ const AuthForm = ({ type }: { type: FormType }) => {
   return (
     <div className="card-border lg:min-w-[566px]">
       <div className="flex flex-col gap-6 card py-14 px-10">
-        <div className="flex flex-row gap-2 justify-center">
-          <Image src="/logo.svg" alt="logo" height={32} width={38} />
-          <h2 className="text-primary-100">PrepWise</h2>
+        <div className="flex flex-row gap-2 justify-center items-center">
+          <div className="flex items-center justify-center size-10 rounded-xl blue-gradient font-bold text-dark-100">
+            NR
+          </div>
+          <h2 className="text-primary-100 text-2xl font-bold">{BRAND.name}</h2>
         </div>
 
-        <h3>Practice job interviews with AI</h3>
+        <h3>{BRAND.tagline}</h3>
 
         <Form {...form}>
           <form

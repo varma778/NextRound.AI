@@ -1,13 +1,96 @@
 "use server";
 
-import { generateObject } from "ai";
-import { google } from "@ai-sdk/google";
+import { generateObject, generateText } from "ai";
 
 import { db } from "@/firebase/admin";
 import { feedbackSchema } from "@/constants";
+import {
+  buildInterviewQuestionsPrompt,
+  getFallbackQuestions,
+  getGeminiModel,
+  parseQuestionsJson,
+} from "@/lib/ai";
+import { isFirestoreUnavailable } from "@/lib/firestore";
+import { getRandomInterviewCover } from "@/lib/utils";
+
+interface CreateInterviewParams {
+  userId: string;
+  role: string;
+  level: string;
+  type: string;
+  techstack: string;
+  amount: number;
+}
+
+async function generateQuestions(params: CreateInterviewParams) {
+  try {
+    const { text } = await generateText({
+      model: getGeminiModel(),
+      prompt: buildInterviewQuestionsPrompt({
+        role: params.role,
+        level: params.level,
+        techstack: params.techstack,
+        type: params.type,
+        amount: params.amount,
+      }),
+    });
+
+    return parseQuestionsJson(text);
+  } catch (error) {
+    console.warn("Gemini question generation failed, using fallback:", error);
+    return getFallbackQuestions(params.role, params.amount);
+  }
+}
+
+export async function createInterview(params: CreateInterviewParams) {
+  const { userId, role, level, type, techstack, amount } = params;
+
+  try {
+    const questions = await generateQuestions(params);
+
+    const interview = {
+      role,
+      type,
+      level,
+      techstack: techstack.split(",").map((t) => t.trim()).filter(Boolean),
+      questions,
+      userId,
+      finalized: true,
+      coverImage: getRandomInterviewCover(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const docRef = await db.collection("interviews").add(interview);
+
+    return {
+      success: true,
+      interviewId: docRef.id,
+      message: "Interview created successfully.",
+    };
+  } catch (error: unknown) {
+    console.error("Error creating interview:", error);
+
+    if (isFirestoreUnavailable(error)) {
+      return {
+        success: false,
+        message:
+          "Firestore database not set up yet. Open Firebase Console → Firestore → Create database, then retry.",
+      };
+    }
+
+    return {
+      success: false,
+      message: "Failed to create interview. Please try again.",
+    };
+  }
+}
 
 export async function createFeedback(params: CreateFeedbackParams) {
   const { interviewId, userId, transcript, feedbackId } = params;
+
+  if (!transcript.length) {
+    return { success: false, message: "No transcript available." };
+  }
 
   try {
     const formattedTranscript = transcript
@@ -18,29 +101,29 @@ export async function createFeedback(params: CreateFeedbackParams) {
       .join("");
 
     const { object } = await generateObject({
-      model: google("gemini-2.0-flash-001", {
-        structuredOutputs: false,
-      }),
+      model: getGeminiModel(),
       schema: feedbackSchema,
       prompt: `
-        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
+        You are a senior interviewer at a top tech company evaluating an internship candidate.
+        Be rigorous but constructive. This feedback will go on their resume prep portfolio.
+
         Transcript:
         ${formattedTranscript}
 
-        Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
-        - **Communication Skills**: Clarity, articulation, structured responses.
-        - **Technical Knowledge**: Understanding of key concepts for the role.
-        - **Problem-Solving**: Ability to analyze problems and propose solutions.
-        - **Cultural & Role Fit**: Alignment with company values and job role.
-        - **Confidence & Clarity**: Confidence in responses, engagement, and clarity.
+        Score 0-100 in these exact categories:
+        - Communication Skills
+        - Technical Knowledge
+        - Problem Solving
+        - Cultural Fit
+        - Confidence and Clarity
         `,
       system:
-        "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories",
+        "You are a professional interviewer providing structured, actionable feedback for internship candidates.",
     });
 
     const feedback = {
-      interviewId: interviewId,
-      userId: userId,
+      interviewId,
+      userId,
       totalScore: object.totalScore,
       categoryScores: object.categoryScores,
       strengths: object.strengths,
@@ -49,27 +132,29 @@ export async function createFeedback(params: CreateFeedbackParams) {
       createdAt: new Date().toISOString(),
     };
 
-    let feedbackRef;
-
-    if (feedbackId) {
-      feedbackRef = db.collection("feedback").doc(feedbackId);
-    } else {
-      feedbackRef = db.collection("feedback").doc();
-    }
+    const feedbackRef = feedbackId
+      ? db.collection("feedback").doc(feedbackId)
+      : db.collection("feedback").doc();
 
     await feedbackRef.set(feedback);
 
     return { success: true, feedbackId: feedbackRef.id };
   } catch (error) {
     console.error("Error saving feedback:", error);
-    return { success: false };
+    return { success: false, message: "Failed to generate feedback." };
   }
 }
 
 export async function getInterviewById(id: string): Promise<Interview | null> {
-  const interview = await db.collection("interviews").doc(id).get();
+  try {
+    const interview = await db.collection("interviews").doc(id).get();
+    if (!interview.exists) return null;
 
-  return interview.data() as Interview | null;
+    return { id: interview.id, ...interview.data() } as Interview;
+  } catch (error) {
+    console.error("Error fetching interview:", error);
+    return null;
+  }
 }
 
 export async function getFeedbackByInterviewId(
@@ -77,17 +162,22 @@ export async function getFeedbackByInterviewId(
 ): Promise<Feedback | null> {
   const { interviewId, userId } = params;
 
-  const querySnapshot = await db
-    .collection("feedback")
-    .where("interviewId", "==", interviewId)
-    .where("userId", "==", userId)
-    .limit(1)
-    .get();
+  try {
+    const querySnapshot = await db
+      .collection("feedback")
+      .where("interviewId", "==", interviewId)
+      .where("userId", "==", userId)
+      .limit(1)
+      .get();
 
-  if (querySnapshot.empty) return null;
+    if (querySnapshot.empty) return null;
 
-  const feedbackDoc = querySnapshot.docs[0];
-  return { id: feedbackDoc.id, ...feedbackDoc.data() } as Feedback;
+    const feedbackDoc = querySnapshot.docs[0];
+    return { id: feedbackDoc.id, ...feedbackDoc.data() } as Feedback;
+  } catch (error) {
+    console.error("Error fetching feedback:", error);
+    return null;
+  }
 }
 
 export async function getLatestInterviews(
@@ -95,31 +185,54 @@ export async function getLatestInterviews(
 ): Promise<Interview[] | null> {
   const { userId, limit = 20 } = params;
 
-  const interviews = await db
-    .collection("interviews")
-    .orderBy("createdAt", "desc")
-    .where("finalized", "==", true)
-    .where("userId", "!=", userId)
-    .limit(limit)
-    .get();
+  try {
+    const interviews = await db
+      .collection("interviews")
+      .orderBy("createdAt", "desc")
+      .where("finalized", "==", true)
+      .where("userId", "!=", userId)
+      .limit(limit)
+      .get();
 
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+    return interviews.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Interview[];
+  } catch (error: unknown) {
+    if (!isFirestoreUnavailable(error)) {
+      console.error("Error fetching latest interviews:", error);
+    }
+    return [];
+  }
 }
 
 export async function getInterviewsByUserId(
   userId: string
 ): Promise<Interview[] | null> {
-  const interviews = await db
-    .collection("interviews")
-    .where("userId", "==", userId)
-    .orderBy("createdAt", "desc")
-    .get();
+  try {
+    const interviews = await db
+      .collection("interviews")
+      .where("userId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .get();
 
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+    return interviews.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Interview[];
+  } catch (error: unknown) {
+    if (!isFirestoreUnavailable(error)) {
+      console.error("Error fetching user interviews:", error);
+    }
+    return [];
+  }
+}
+
+export async function isFirestoreReady(): Promise<boolean> {
+  try {
+    await db.collection("users").limit(1).get();
+    return true;
+  } catch (error) {
+    return !isFirestoreUnavailable(error);
+  }
 }

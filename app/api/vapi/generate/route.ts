@@ -1,7 +1,11 @@
 import { generateText } from "ai";
-import { google } from "@ai-sdk/google";
 
 import { db } from "@/firebase/admin";
+import {
+  buildInterviewQuestionsPrompt,
+  getGeminiModel,
+  parseQuestionsJson,
+} from "@/lib/ai";
 import { getRandomInterviewCover } from "@/lib/utils";
 
 export async function POST(request: Request) {
@@ -9,43 +13,40 @@ export async function POST(request: Request) {
 
   try {
     const { text: questions } = await generateText({
-      model: google("gemini-2.0-flash-001"),
-      prompt: `Prepare questions for a job interview.
-        The job role is ${role}.
-        The job experience level is ${level}.
-        The tech stack used in the job is: ${techstack}.
-        The focus between behavioural and technical questions should lean towards: ${type}.
-        The amount of questions required is: ${amount}.
-        Please return only the questions, without any additional text.
-        The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
-        Return the questions formatted like this:
-        ["Question 1", "Question 2", "Question 3"]
-        
-        Thank you! <3
-    `,
+      model: getGeminiModel(),
+      prompt: buildInterviewQuestionsPrompt({
+        role,
+        level,
+        techstack,
+        type,
+        amount,
+      }),
     });
 
     const interview = {
-      role: role,
-      type: type,
-      level: level,
-      techstack: techstack.split(","),
-      questions: JSON.parse(questions),
+      role,
+      type,
+      level,
+      techstack: techstack.split(",").map((t: string) => t.trim()).filter(Boolean),
+      questions: parseQuestionsJson(questions),
       userId: userid,
       finalized: true,
       coverImage: getRandomInterviewCover(),
       createdAt: new Date().toISOString(),
     };
 
-    await db.collection("interviews").add(interview);
+    const docRef = await db.collection("interviews").add(interview);
 
-    return Response.json({ success: true }, { status: 200 });
+    return Response.json(
+      { success: true, interviewId: docRef.id },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Error:", error);
-    return Response.json({ success: false, error: error }, { status: 500 });
+    return Response.json({ success: false, error: String(error) }, { status: 500 });
   }
 }
 
 export async function GET() {
-  return Response.json({ success: true, data: "Thank you!" }, { status: 200 });
+  return Response.json({ success: true, service: "NextRound.ai Vapi API" }, { status: 200 });
 }

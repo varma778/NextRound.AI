@@ -15,13 +15,14 @@ const InterviewCard = async ({
   type,
   techstack,
   createdAt,
+  feedback: prefetchedFeedback,
 }: InterviewCardProps) => {
+  // Only fetch if feedback wasn't pre-loaded (avoids N+1 on dashboard)
   const feedback =
-    userId && interviewId
-      ? await getFeedbackByInterviewId({
-          interviewId,
-          userId,
-        })
+    prefetchedFeedback !== undefined
+      ? prefetchedFeedback
+      : userId && interviewId
+      ? await getFeedbackByInterviewId({ interviewId, userId })
       : null;
 
   const normalizedType = /mix/gi.test(type) ? "Mixed" : type;

@@ -26,8 +26,8 @@ const Feedback = async ({ params }: RouteParams) => {
     <section className="section-feedback">
       <div className="flex flex-row justify-center">
         <h1 className="text-4xl font-semibold">
-          Feedback on the Interview -{" "}
-          <span className="capitalize">{interview.role}</span> Interview
+          NextRound.ai Feedback —{" "}
+          <span className="capitalize">{interview.role}</span>
         </h1>
       </div>
 

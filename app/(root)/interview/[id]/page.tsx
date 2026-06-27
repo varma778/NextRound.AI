@@ -11,8 +11,12 @@ import {
 import { getCurrentUser } from "@/lib/actions/auth.action";
 import DisplayTechIcons from "@/components/DisplayTechIcons";
 
-const InterviewDetails = async ({ params }: RouteParams) => {
+const InterviewDetails = async ({
+  params,
+  searchParams,
+}: RouteParams & { searchParams: Promise<{ autopilot?: string }> }) => {
   const { id } = await params;
+  const { autopilot } = await searchParams;
 
   const user = await getCurrentUser();
 
@@ -31,12 +35,15 @@ const InterviewDetails = async ({ params }: RouteParams) => {
           <div className="flex flex-row gap-4 items-center">
             <Image
               src={getRandomInterviewCover()}
-              alt="cover-image"
+              alt="Interview cover"
               width={40}
               height={40}
               className="rounded-full object-cover size-[40px]"
             />
-            <h3 className="capitalize">{interview.role} Interview</h3>
+            <div>
+              <h3 className="capitalize">{interview.role} Interview</h3>
+              <p className="text-sm text-light-400">{interview.level} level</p>
+            </div>
           </div>
 
           <DisplayTechIcons techStack={interview.techstack} />
@@ -54,6 +61,8 @@ const InterviewDetails = async ({ params }: RouteParams) => {
         type="interview"
         questions={interview.questions}
         feedbackId={feedback?.id}
+        role={interview.role}
+        autopilot={autopilot === "1"}
       />
     </>
   );

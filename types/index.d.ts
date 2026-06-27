@@ -45,6 +45,8 @@ interface InterviewCardProps {
   type: string;
   techstack: string[];
   createdAt?: string;
+  /** Pre-fetched feedback — pass this to avoid per-card Firestore queries */
+  feedback?: Feedback | null;
 }
 
 interface AgentProps {
@@ -54,6 +56,8 @@ interface AgentProps {
   feedbackId?: string;
   type: "generate" | "interview";
   questions?: string[];
+  role?: string;
+  autopilot?: boolean;
 }
 
 interface RouteParams {

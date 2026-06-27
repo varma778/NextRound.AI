@@ -1,6 +1,8 @@
-import { Toaster } from "sonner";
 import type { Metadata } from "next";
 import { Mona_Sans } from "next/font/google";
+import { Toaster } from "sonner";
+
+import { BRAND } from "@/constants/branding";
 
 import "./globals.css";
 
@@ -10,8 +12,20 @@ const monaSans = Mona_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "PrepWise",
-  description: "An AI-powered platform for preparing for mock interviews",
+  title: {
+    default: BRAND.name,
+    template: `%s | ${BRAND.name}`,
+  },
+  description: BRAND.description,
+  keywords: [
+    "mock interview",
+    "AI interview",
+    "internship prep",
+    "Google interview",
+    "voice AI",
+    "NextRound.ai",
+  ],
+  applicationName: BRAND.name,
 };
 
 export default function RootLayout({
@@ -23,8 +37,7 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={`${monaSans.className} antialiased pattern`}>
         {children}
-
-        <Toaster />
+        <Toaster richColors position="top-center" />
       </body>
     </html>
   );
